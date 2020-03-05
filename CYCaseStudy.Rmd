@@ -1,0 +1,210 @@
+---
+title: "ScratchWork"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r functions and constants}
+library(ggplot2)
+
+#All ranges represent a 90% confidence which corresponds to 1.645 times the standard deviation for a normal distribution
+sig <-1.645
+
+#Create a function to sample from the normal distribution of corporate donors that a DevManager
+#   can connect with in a year.
+num_c_donors <- function(n){
+  abs(rnorm(n, mean = 20, sd = 3.0395))
+}
+
+#Create a function to sample from the normal distribution of private donors that a DevManager
+#   can connect with in a year.
+num_p_donors <- function(n){
+  abs(rnorm(n, mean = 350, sd = 91.184))
+}
+
+#Create a function to sample from the lognormal distribution of typical amounts that corporate
+#   donors give. This is done by taking the ln of the boundaries of the 90% interval and using
+#   those to generate a normal distribution.
+c_lnavg <- (log(50000)+log(1000000))/2
+c_lnsd <- (log(1000000)-log(50000))/(2*sig)
+c_dono_amt <- function(num){
+  exp(rnorm(num, mean = c_lnavg, sd = c_lnsd))
+}
+
+#Create a function to sample from the lognormal distribution of typical amounts that private
+#   donors give. Same method as above
+p_lnavg <- (log(5000)+log(50000))/2
+p_lnsd <- (log(50000)-log(5000))/(2*sig)
+p_dono_amt <- function(num){
+  exp(rnorm(num, mean = p_lnavg, sd = p_lnsd))
+}
+
+#A function that, given an integer vector and and upper and lower bound, will return the
+#   percentage of of elements between the bounds. Used to check that our 90% of samples are 
+#   within the specified interval.
+conf_int_test <- function(l, lbound, ubound){
+  a <- table(l < lbound | ubound > 1000000)
+  abs((a[2]-a[1])/(a[2]+a[1]))
+}
+
+#A function that returns a random vector of 10 sequential integers
+rand_interval <- function(l, len){
+  a <- round(runif(1, 1, length(c_years)-len))
+  l[c(a:(a+len-1))]
+}
+```
+
+
+```{r Confidence interval tests}
+#Test that ~90% of private donation amounts are between 5,000 and 50,000
+conf_int_test(p_dono_amt(10000), 5000, 50000)
+
+#Test that ~90% of corporate donation amounts are between 50,000 and 1,000,000
+conf_int_test(c_dono_amt(10000), 50000, 1000000)
+```
+
+```{r corporate donations}
+num_years <- 10000
+
+#Create an vector of zeros to hold the amount raised each year
+c_years <- seq(0, 0, length.out = num_years)
+
+
+for(i in c(1:length(c_years))){
+  #For each year, generate a random number (in the given range) of new
+  #   corporate contacts, scaled by how likely they are to donate (25%)
+  c_success <- round(num_c_donors(1)*.25)
+  for(j in c_success){
+    #For each of the new contacts, determine how much they will donate (s), and
+    #   how many years their grant will be extended (renewals)
+    s <- c_dono_amt(j)
+    renewals <- rpois(j, 2)
+    for(k in c(1:length(s))){
+      #Add the contact's donation amount to the current year and also to the future
+      #   years determined by how many years they will renew for
+      c_years[c(0:renewals[k])+i] <- c_years[c(0:renewals[k])+i] + s[k]
+    }
+  }
+}
+
+#Clean the data up.
+#Drop the extra entries added to the end by grants that were renewed many times (these are all "Na" anyway). 
+c_years <- c_years[c(1:num_years)]
+
+#Drop the first 10 terms to remove any effects of edge conditions 
+#print(c_years[1:10])
+c_years <- c_years[c(-1:-10)]
+
+#Look at the data
+#plot(c(1:length(c_years)), c_years, type = "p", col = "blue")
+#hist(c_years, breaks = 40)
+```
+
+```{r private donations}
+num_years <- 10000
+
+#Create an vector of zeros to hold the amount raised each year
+p_years <- seq(0, 0, length.out = num_years)
+
+
+for(i in c(1:length(p_years))){
+  #For each year, generate a random number (in the given range) of new
+  #   RJS contacts, scaled by how likely they are to donate (50%)
+  p_success <- round(num_p_donors(1)*.5)
+  for(j in p_success){
+    #For each of the new RJS, determine how much they will donate (s), and
+    #   how many years their grant will be extended (renewals). This sampling
+    #   function looks different from above as it is no longer a poisson dist.
+    s <- p_dono_amt(j)
+    renewals <- sample(c(0:2), size=j, prob = c(.5, .4, .1), replace = TRUE)
+    for(k in c(1:length(s))){
+      #Add the contact's donation amount to the current year and also to the future
+      #   years determined by how many years they will renew for
+      p_years[c(0:renewals[k])+i] <- p_years[c(0:renewals[k])+i] + s[k]
+    }
+  }
+}
+
+#Clean the data up.
+#Drop the extra entries added to the end by grants that were renewed many times (these are all "Na" anyway). 
+p_years <- p_years[c(1:num_years)]
+
+#Drop the first 10 terms to remove any effects of edge conditions 
+p_years <- p_years[c(-1:-10)]
+
+#Look at the data
+# plot(c(1:length(p_years)), p_years, type = "l", col = "blue")
+# hist(p_years, breaks = 40)
+```
+
+```{r matrix}
+#Assuming 3 Development Managers, create 4 matrices whose columns are years and rows are the
+#   amounts raised by 1 manager each year. Each matrix has a different combination of focuses
+#   for the managers. They span 100 years.
+n <- 100
+c3_matrix <- matrix(c(rand_interval(c_years, n), rand_interval(c_years, n), rand_interval(c_years, n)), nrow = 3)
+c2p1_matrix <- matrix(c(rand_interval(c_years, n), rand_interval(c_years, n), rand_interval(p_years, n)), nrow = 3)
+c1p2_matrix <- matrix(c(rand_interval(c_years, n), rand_interval(p_years, n), rand_interval(p_years, n)), nrow = 3)
+p3_matrix <- matrix(c(rand_interval(p_years, n), rand_interval(p_years, n), rand_interval(p_years, n)), nrow = 3)
+# qplot(c(1:n), colSums(c3_matrix), xlim = c(0,n), ylim = c(5e06, 4e07), geom = "line")
+# qplot(c(1:n), colSums(c2p1_matrix), xlim = c(0,n), ylim = c(5e06, 4e07), geom = "line")
+# qplot(c(1:n), colSums(c1p2_matrix), xlim = c(0,n), ylim = c(5e06, 4e07), geom = "line")
+# qplot(c(1:n), colSums(p3_matrix), xlim = c(0,n), ylim = c(5e06, 4e07), geom = "line")
+```
+
+```{r means and sds}
+#Mean and SD of annual corporate donations
+print(c(mean(c_years), sd(c_years)))
+
+#Mean and SD annual private donations
+print(c(mean(p_years), sd(p_years)))
+
+#Percent increase
+print(100*(mean(p_years)-mean(c_years))/mean(c_years))
+```
+
+```{r ranges}
+#Generate a 90% interval for corporate donations
+print(c(mean(c_years)-sd(c_years)*sig,mean(c_years)+sd(c_years)*sig))
+
+#Generate a 90% interval for private donations
+print(c(mean(p_years)-sd(p_years)*sig,mean(p_years)+sd(p_years)*sig))
+```
+
+
+```{r plots, echo = FALSE}
+#Create the histogram of corporate donation amounts (per year)
+c_plot <- qplot(c_years,
+      geom = "histogram",
+      binwidth = 250000,
+      fill = I("Seagreen2"),
+      col = I("Black")
+      )
+
+#Create the historgram of private donation amounts (per year)
+p_plot <- qplot(p_years,
+      geom = "histogram",
+      binwidth = 250000,
+      fill = I("Orangered1"),
+      col = I("Black")
+      )
+
+#Set the graphing options for the corporate plot. Most importantly, make sure the axes of both histograms are the same
+c_plot + theme_linedraw() + scale_x_continuous(limits = c(0,1.5e7), breaks = seq(0, 1.5e7, 1.25e6), labels = (seq(0, 1.5e7, 1.25e6)/1e6)) + labs(title = "Histogram of Corporate Donations", x="Amount Raised in one year (in millions of dollars)", y="Frequency") + scale_y_continuous(limits = c(0,1000), breaks = waiver(), labels = NULL) + theme(plot.title = element_text(size = 20, hjust=0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=14))
+
+#Save the corporate histogram
+ggsave("c_plot.png")
+
+#Set graphing options for the private plot.
+p_plot + theme_linedraw() + scale_x_continuous(limits = c(0,1.5e7), breaks = seq(0, 1.5e7, 1.25e6), labels = (seq(0, 1.5e7, 1.25e6)/1e6)) + labs(title = "Histogram of Private Donations", x="Amount Raised in one year (in millions of dollars)", y="Frequency") + scale_y_continuous(limits = c(0,1000), breaks = waiver(), labels = NULL) + theme(plot.title = element_text(size = 20, hjust=0.5), axis.title.x = element_text(size=14), axis.title.y = element_text(size=14))
+
+#Save the private histogram
+ggsave("p_plot.png")
+```
